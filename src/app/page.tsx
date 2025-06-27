@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 
 interface StructuredContent {
   title: string;
@@ -107,8 +107,8 @@ export default function Home() {
     'popular': ['미국미술유학', '포트폴리오 컨셉', '건축 유학', '아이비리그 입학', '패션 디자인']
   };
 
-  // Recommended keyword combinations with content types
-  const recommendedCombos = [
+  // Recommended keyword combinations with content types - using useMemo to prevent re-renders
+  const recommendedCombos = useMemo(() => [
     {
       name: "아이비리그 건축 진학",
       description: "명문대 건축과 입학 전략",
@@ -205,7 +205,7 @@ export default function Home() {
       contentType: "qna",
       benefit: "기초 필수 + 범용성"
     }
-  ];
+  ], []);
 
   // Shuffle combos only once on first render
   useEffect(() => {
@@ -300,14 +300,6 @@ export default function Home() {
     alert('네이버 블로그용 텍스트가 클립보드에 복사되었습니다!');
   };
 
-  const handleCategorySelect = (category: string) => {
-    if (selectedCategories.includes(category)) {
-      setSelectedCategories(selectedCategories.filter(c => c !== category));
-    } else {
-      setSelectedCategories([...selectedCategories, category]);
-    }
-  };
-
   const handleCategoryToggle = (category: string) => {
     if (selectedCategories.includes(category)) {
       setSelectedCategories(prev => prev.filter(c => c !== category));
@@ -321,13 +313,6 @@ export default function Home() {
       return Object.values(keywordHierarchy).flat();
     }
     return selectedCategories.flatMap(category => keywordHierarchy[category as keyof typeof keywordHierarchy]?.keywords || []);
-  };
-
-  const getAvailableKeywords = () => {
-    if (showAllKeywords) {
-      return Object.values(keywordHierarchy).flat();
-    }
-    return getFilteredKeywords();
   };
 
   const handleKeywordToggle = (keyword: string) => {
