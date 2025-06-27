@@ -87,6 +87,7 @@ export default function Home() {
       format: '질문-답변 구조'
     },
     {
+      id: 'general',
       name: '일반 예술 콘텐츠',
       description: '폭넓은 독자층을 대상으로 한 접근하기 쉬운 예술 정보',
       icon: '🎨',
@@ -121,7 +122,7 @@ export default function Home() {
       name: "포트폴리오 완성 가이드", 
       description: "포트폴리오 제작 노하우",
       category: "건축",
-      keywords: ["건축 다이어그램", "건축 컨셉", "포트폴리오 컨셉"],
+      keywords: ["건축 다이어그램", "건축 컨셉", "건축 유학 포트폴리오"],
       contentType: "qna",
       benefit: "실용성 + 트렌딩"
     },
@@ -129,7 +130,7 @@ export default function Home() {
       name: "국제학교 학생 전용",
       description: "IB 과정 학생 맞춤",
       category: "파인아트", 
-      keywords: ["IB Art", "국제학교 미술", "아트 서플리먼트"],
+      keywords: ["IB Visual Art", "국제학교 미술", "아트 서플리먼트"],
       contentType: "general",
       benefit: "타겟 특화 + 틈새"
     },
@@ -270,10 +271,36 @@ export default function Home() {
   };
 
   const applyRecommendedCombo = (combo: typeof recommendedCombos[0]) => {
-    setSelectedCategories([combo.category]);
-    setSelectedPath([]);
-    setSelectedKeywords(combo.keywords);
-    setSelectedContentType(combo.contentType);
+    try {
+      // Validate that the category exists in keywordHierarchy
+      if (!keywordHierarchy[combo.category as keyof typeof keywordHierarchy]) {
+        console.error(`Category "${combo.category}" not found in keywordHierarchy`);
+        return;
+      }
+      
+      // Validate that all keywords exist in the category
+      const categoryKeywords = keywordHierarchy[combo.category as keyof typeof keywordHierarchy].keywords;
+      const invalidKeywords = combo.keywords.filter(keyword => !categoryKeywords.includes(keyword));
+      
+      if (invalidKeywords.length > 0) {
+        console.error(`Invalid keywords found: ${invalidKeywords.join(', ')}`);
+        // Use only valid keywords
+        const validKeywords = combo.keywords.filter(keyword => categoryKeywords.includes(keyword));
+        if (validKeywords.length === 0) {
+          console.error('No valid keywords found');
+          return;
+        }
+        setSelectedKeywords(validKeywords);
+      } else {
+        setSelectedKeywords(combo.keywords);
+      }
+      
+      setSelectedCategories([combo.category]);
+      setSelectedPath([]);
+      setSelectedContentType(combo.contentType);
+    } catch (error) {
+      console.error('Error applying recommended combo:', error);
+    }
   };
 
   const copyToClipboard = () => {
@@ -316,11 +343,15 @@ export default function Home() {
   };
 
   const handleKeywordToggle = (keyword: string) => {
-    setSelectedKeywords(prev => 
-      prev.includes(keyword) 
-        ? prev.filter(k => k !== keyword)
-        : [...prev, keyword]
-    );
+    try {
+      setSelectedKeywords(prev => 
+        prev.includes(keyword) 
+          ? prev.filter(k => k !== keyword)
+          : [...prev, keyword]
+      );
+    } catch (error) {
+      console.error('Error toggling keyword:', error);
+    }
   };
 
   const handleBreadcrumbClick = (index: number) => {
