@@ -21,8 +21,7 @@ export default function Home() {
   const [selectedKeywords, setSelectedKeywords] = useState<string[]>([]);
   const [selectedContentType, setSelectedContentType] = useState('');
   const [prompt, setPrompt] = useState('');
-  const [response, setResponse] = useState<StructuredContent | string>('');
-  const [isStructured, setIsStructured] = useState(false);
+  const [response, setResponse] = useState<string | StructuredContent>('');
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<{
     title: string;
@@ -34,15 +33,10 @@ export default function Home() {
   } | null>(null);
 
   // --- UI Enhancements ---
-  // Shuffle recommended keyword combinations for variety
   const [shuffledCombos, setShuffledCombos] = useState<typeof recommendedCombos>([]);
-  // Dynamic placeholder example prompt
   const [promptPlaceholder, setPromptPlaceholder] = useState('카테고리, 키워드(3개), 글 유형을 먼저 선택해주세요');
-  // Toggle for recommended combos visibility
   const [showRecommendedCombos, setShowRecommendedCombos] = useState(true);
-  // Toggle for showing all keywords vs filtered by selected categories
   const [showAllKeywords, setShowAllKeywords] = useState(false);
-  // Multiple category selection
   const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
 
   const keywordHierarchy = {
@@ -74,24 +68,6 @@ export default function Home() {
 
   const categories = Object.keys(keywordHierarchy);
 
-  // Helper function to extract question from Q&A content
-  const extractQuestion = (paragraph: string) => {
-    // Look for question patterns and extract the main question
-    const questionMatch = paragraph.match(/([^.!?]*\?)/);
-    if (questionMatch) {
-      return questionMatch[1].trim() + '?';
-    }
-    
-    // If no question mark found, try to extract the first sentence as a topic
-    const sentences = paragraph.split(/[.!?]/);
-    if (sentences.length > 0 && sentences[0].trim()) {
-      return sentences[0].trim();
-    }
-    
-    // Fallback: use first 50 characters
-    return paragraph.substring(0, 50) + (paragraph.length > 50 ? '...' : '');
-  };
-
   // Content types based on PRD requirements
   const contentTypes = [
     {
@@ -111,7 +87,6 @@ export default function Home() {
       format: '질문-답변 구조'
     },
     {
-      id: 'general',
       name: '일반 예술 콘텐츠',
       description: '폭넓은 독자층을 대상으로 한 접근하기 쉬운 예술 정보',
       icon: '🎨',
@@ -234,9 +209,8 @@ export default function Home() {
 
   // Shuffle combos only once on first render
   useEffect(() => {
-    const shuffled = [...recommendedCombos].sort(() => Math.random() - 0.5);
-    setShuffledCombos(shuffled);
-  }, []);
+    setShuffledCombos([...recommendedCombos].sort(() => Math.random() - 0.5));
+  }, [recommendedCombos]);
 
   // Update placeholder example whenever category or content type changes
   const promptExamples: Record<string, string[]> = {
@@ -250,15 +224,26 @@ export default function Home() {
     '패션': ['텍스타일 패션 디자인 프로세스', 'FIT 패션 마케팅 석사 합격 전략']
   };
 
+  // Helper functions (moved before useEffect to avoid declaration order issues)
+  const getCurrentCategory = () => {
+    if (selectedCategories.length === 0) return '전체';
+    if (selectedCategories.length === 1) return selectedCategories[0];
+    return `${selectedCategories.length}개 카테고리`;
+  };
+
   useEffect(() => {
-    const categories = selectedCategories.length > 0 ? selectedCategories : [getCurrentCategory()].filter(Boolean);
-    if (categories.length > 0 && promptExamples[categories[0]]) {
-      const examples = promptExamples[categories[0]];
-      setPromptPlaceholder(`예) ${examples[Math.floor(Math.random() * examples.length)]}`);
-    } else {
+    if (selectedCategories.length === 0) {
       setPromptPlaceholder('카테고리, 키워드(3개), 글 유형을 먼저 선택해주세요');
+    } else if (selectedKeywords.length < 3) {
+      setPromptPlaceholder(`키워드를 ${3 - selectedKeywords.length}개 더 선택해주세요`);
+    } else if (!selectedContentType) {
+      setPromptPlaceholder('글 유형을 선택해주세요');
+    } else {
+      const examples = promptExamples[getCurrentCategory()] || promptExamples['전체'];
+      const randomExample = examples[Math.floor(Math.random() * examples.length)];
+      setPromptPlaceholder(randomExample);
     }
-  }, [selectedPath, selectedContentType, selectedCategories]);
+  }, [selectedCategories, selectedKeywords, selectedContentType]);
 
   const getKeywordTag = (keyword: string) => {
     if (keywordMeta.trending.includes(keyword)) return { label: '트렌딩', color: 'bg-red-100 text-red-800' };
@@ -315,75 +300,12 @@ export default function Home() {
     alert('네이버 블로그용 텍스트가 클립보드에 복사되었습니다!');
   };
 
-  const formatStructuredContent = (content: StructuredContent) => {
-    const isQnA = selectedContentType === 'qna';
-    
-    // Helper function to format content for copying
-    const formatContentForCopy = (paragraph: string) => {
-      // Handle summary boxes in copy format
-      if (paragraph.includes('📌 핵심 요약') || paragraph.includes('📌핵심 요약')) {
-        return paragraph.replace(/📌\s*핵심 요약/g, '\n\n📌 핵심 요약\n');
-      }
-      return paragraph;
-    };
-    
-    if (isQnA) {
-      return `${content.title}
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-${formatContentForCopy(content.content.paragraph1)}
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-${formatContentForCopy(content.content.paragraph2)}
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-${formatContentForCopy(content.content.paragraph3)}
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-✅ 추천 이미지
-
-${content.images.map((img, i) => `${i + 1}. ${img.name}
-   ${img.description}`).join('\n\n')}
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-${content.hashtags.join(' ')}`;
-    } else {
-      return `${content.title}
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-${formatContentForCopy(content.content.paragraph1)}
-
-${formatContentForCopy(content.content.paragraph2)}
-
-${formatContentForCopy(content.content.paragraph3)}
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-✅ 추천 이미지
-
-${content.images.map((img, i) => `${i + 1}. ${img.name}
-   ${img.description}`).join('\n\n')}
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-${content.hashtags.join(' ')}`;
-    }
-  };
-
   const handleCategorySelect = (category: string) => {
     if (selectedCategories.includes(category)) {
-      setSelectedCategories(prev => prev.filter(c => c !== category));
+      setSelectedCategories(selectedCategories.filter(c => c !== category));
     } else {
-      setSelectedCategories(prev => [...prev, category]);
+      setSelectedCategories([...selectedCategories, category]);
     }
-    // Reset path-based selection when using multi-category mode
-    setSelectedPath([]);
   };
 
   const handleCategoryToggle = (category: string) => {
@@ -395,19 +317,17 @@ ${content.hashtags.join(' ')}`;
   };
 
   const getFilteredKeywords = () => {
-    if (showAllKeywords) {
-      return categories.map(category => ({
-        category,
-        keywords: keywordHierarchy[category as keyof typeof keywordHierarchy].keywords
-      }));
-    } else if (selectedCategories.length > 0) {
-      return selectedCategories.map(category => ({
-        category,
-        keywords: keywordHierarchy[category as keyof typeof keywordHierarchy].keywords
-      }));
-    } else {
-      return [];
+    if (selectedCategories.length === 0) {
+      return Object.values(keywordHierarchy).flat();
     }
+    return selectedCategories.flatMap(category => keywordHierarchy[category as keyof typeof keywordHierarchy]?.keywords || []);
+  };
+
+  const getAvailableKeywords = () => {
+    if (showAllKeywords) {
+      return Object.values(keywordHierarchy).flat();
+    }
+    return getFilteredKeywords();
   };
 
   const handleKeywordToggle = (keyword: string) => {
@@ -424,12 +344,6 @@ ${content.hashtags.join(' ')}`;
       setSelectedKeywords([]);
       setSelectedContentType('');
     }
-  };
-
-  const getCurrentCategory = () => selectedPath[0];
-  const getAvailableKeywords = () => {
-    const category = getCurrentCategory();
-    return category ? keywordHierarchy[category as keyof typeof keywordHierarchy]?.keywords || [] : [];
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -480,33 +394,6 @@ ${content.hashtags.join(' ')}`;
     } finally {
       setLoading(false);
     }
-  };
-
-  const formatParagraphContent = (paragraph: string, isProfessional: boolean = false) => {
-    // Check if the paragraph contains a summary box indicator
-    if (paragraph.includes('📌 핵심 요약') || paragraph.includes('📌핵심 요약')) {
-      const parts = paragraph.split(/📌\s*핵심 요약/);
-      if (parts.length === 2) {
-        return (
-          <div>
-            <div className="mb-4">
-              {parts[0].trim()}
-            </div>
-            <div className="bg-blue-50 border-l-4 border-blue-500 p-4 my-4 rounded-r-lg">
-              <div className="flex items-center mb-2">
-                <span className="text-blue-700 font-bold text-lg">📌 핵심 요약</span>
-              </div>
-              <div className="text-blue-800 font-medium">
-                {parts[1].trim()}
-              </div>
-            </div>
-          </div>
-        );
-      }
-    }
-    
-    // Regular paragraph formatting
-    return <div>{paragraph}</div>;
   };
 
   return (
@@ -593,20 +480,11 @@ ${content.hashtags.join(' ')}`;
                             {combo.benefit}
                           </span>
                         </div>
-                        <p className="text-sm text-gray-600 mb-2">{combo.description}</p>
-                        <div className="space-y-2">
-                          <div className="flex flex-wrap gap-1">
-                            {combo.keywords.map((keyword) => (
-                              <span key={keyword} className="text-xs bg-gray-100 text-gray-700 px-2 py-1 rounded-full">
-                                {keyword}
-                              </span>
-                            ))}
-                          </div>
-                          <div className="text-xs">
-                            <span className="bg-orange-100 text-orange-800 px-2 py-1 rounded-full">
-                              {contentTypes.find(t => t.id === combo.contentType)?.icon} {contentTypes.find(t => t.id === combo.contentType)?.name}
-                            </span>
-                          </div>
+                        <div className="text-sm text-gray-600 mt-1">
+                          {combo.description} - {combo.benefit}
+                        </div>
+                        <div className="text-xs text-green-600 mt-1">
+                          ✅ {combo.keywords.length}개 키워드 | 밸런스: A | {combo.keywords.includes('trending') ? '트렌딩' : '전문'} 콘텐츠
                         </div>
                       </div>
                     ))}
