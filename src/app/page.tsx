@@ -342,6 +342,21 @@ export default function Home() {
     return selectedCategories.flatMap(category => keywordHierarchy[category as keyof typeof keywordHierarchy]?.keywords || []);
   };
 
+  const getGroupedKeywords = () => {
+    if (selectedCategories.length === 0) {
+      // Return all categories when no specific category is selected
+      return Object.entries(keywordHierarchy).map(([category, data]) => ({
+        category,
+        keywords: data.keywords
+      }));
+    }
+    // Return only selected categories
+    return selectedCategories.map(category => ({
+      category,
+      keywords: keywordHierarchy[category as keyof typeof keywordHierarchy]?.keywords || []
+    })).filter(item => item.keywords.length > 0);
+  };
+
   const handleKeywordToggle = (keyword: string) => {
     try {
       setSelectedKeywords(prev => 
@@ -484,7 +499,7 @@ export default function Home() {
                 <>
                   <p className="text-sm text-gray-600 mb-4">성과가 입증된 키워드 조합을 바로 사용해보세요!</p>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    {shuffledCombos.map((combo, index) => (
+                    {(shuffledCombos || []).map((combo, index) => (
                       <div
                         key={index}
                         className="p-4 border border-gray-200 rounded-lg hover:border-blue-300 hover:bg-blue-50 transition-colors cursor-pointer"
@@ -567,9 +582,9 @@ export default function Home() {
                 <span className="inline-block w-3 h-3 bg-yellow-100 rounded mr-1 ml-2"></span>틈새
               </div>
 
-              {getFilteredKeywords().length > 0 ? (
+              {getGroupedKeywords().length > 0 ? (
                 <div className="space-y-4 mb-4 max-h-[600px] overflow-y-auto pr-1 border border-gray-200 rounded-lg p-4">
-                {getFilteredKeywords().map(({ category, keywords }) => (
+                {getGroupedKeywords().map(({ category, keywords }) => (
                   <div key={category}>
                     <h4 className="text-xs font-semibold text-gray-600 mb-2">{category}</h4>
                     <div className="flex flex-wrap gap-2 mb-3">
@@ -607,7 +622,7 @@ export default function Home() {
                 <div className="mb-4">
                   <h4 className="text-sm font-medium text-gray-700 mb-2">선택된 키워드:</h4>
                   <div className="flex flex-wrap gap-2 mb-3">
-                    {selectedKeywords.map((keyword) => {
+                    {(selectedKeywords || []).map((keyword) => {
                       const tag = getKeywordTag(keyword);
                       return (
                         <span
@@ -763,7 +778,7 @@ export default function Home() {
                   </span>
                   {selectedKeywords.length > 0 && (
                     <div className="flex flex-wrap gap-1 ml-2">
-                      {selectedKeywords.slice(0, 3).map((keyword) => (
+                      {(selectedKeywords || []).slice(0, 3).map((keyword) => (
                         <span key={keyword} className="px-2 py-1 bg-green-100 text-green-800 text-xs rounded-full">
                           {keyword}
                         </span>
@@ -806,7 +821,7 @@ export default function Home() {
                   <div className="mt-8">
                     <h3 className="text-xl font-bold text-gray-900 mb-6 text-center">✅ 추천 이미지</h3>
                     <div className="space-y-4">
-                      {result.images.map((image, index) => (
+                      {(result.images || []).map((image, index) => (
                         <div key={index} className="bg-gray-50 p-4 rounded-lg">
                           <h4 className="font-bold text-gray-900 mb-2">
                             {index + 1}. {image}
@@ -819,7 +834,7 @@ export default function Home() {
                   <div className="mt-8">
                     <h3 className="text-xl font-bold text-gray-900 mb-6 text-center">✅ 해시태그</h3>
                     <div className="flex flex-wrap justify-center gap-2">
-                      {result.hashtags.map((hashtag, index) => (
+                      {(result.hashtags || []).map((hashtag, index) => (
                         <span key={index} className="text-blue-600 font-medium text-lg">
                           {hashtag}
                         </span>
