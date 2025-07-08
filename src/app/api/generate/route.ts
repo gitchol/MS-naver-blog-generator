@@ -1,8 +1,136 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { NextRequest, NextResponse } from 'next/server';
+import fs from 'fs';
+import path from 'path';
+import { initializeAutoTraining } from '@/lib/auto-training';
+
+// 학습 데이터 타입 정의
+interface TrainingData {
+  blogs: Array<{
+    id: number;
+    title: string;
+    content: string;
+    category?: string;
+    subcategory?: string;
+    keywords?: string[];
+    contentType?: string;
+    writingStyle?: {
+      tone?: string;
+      paragraphStructure?: string;
+      sentenceLength?: string;
+      emotionalTone?: string;
+      promotionalLevel?: string;
+    };
+    createdAt: string;
+  }>;
+  learningPatterns: {
+    commonPhrases: string[];
+    writingPatterns: string[];
+    toneAnalysis: Record<string, unknown>;
+    structureAnalysis: Record<string, unknown>;
+  };
+}
+
+// 학습 데이터 읽기
+function readTrainingData(): TrainingData | null {
+  try {
+    const trainingDataPath = path.join(process.cwd(), 'src/data/training-data.json');
+    if (fs.existsSync(trainingDataPath)) {
+      const data = fs.readFileSync(trainingDataPath, 'utf-8');
+      return JSON.parse(data);
+    }
+  } catch (error) {
+    console.error('Error reading training data:', error);
+  }
+  return null;
+}
+
+// 학습된 패턴을 기반으로 개인화된 프롬프트 생성
+function generatePersonalizedPrompt(basePrompt: string, trainingData: TrainingData, contentType: string): string {
+  const relevantBlogs = trainingData.blogs.filter(blog => 
+    blog.contentType === contentType || blog.contentType === 'general'
+  );
+  
+  if (relevantBlogs.length === 0) {
+    return basePrompt;
+  }
+  
+  // 공통 표현 추출
+  const commonPhrases = trainingData.learningPatterns.commonPhrases.slice(0, 10);
+  
+  // 스타일 분석
+  const styleAnalysis = relevantBlogs.map(blog => blog.writingStyle).filter(Boolean);
+  const dominantTone = getMostCommonValue(styleAnalysis.map(s => s?.tone).filter((tone): tone is string => Boolean(tone)));
+  const dominantStructure = getMostCommonValue(styleAnalysis.map(s => s?.paragraphStructure).filter((structure): structure is string => Boolean(structure)));
+  const dominantSentenceLength = getMostCommonValue(styleAnalysis.map(s => s?.sentenceLength).filter((length): length is string => Boolean(length)));
+  const dominantEmotionalTone = getMostCommonValue(styleAnalysis.map(s => s?.emotionalTone).filter((tone): tone is string => Boolean(tone)));
+  
+  // 예시 컨텐츠 (최신 3개)
+  const recentBlogs = relevantBlogs.slice(-3);
+  const exampleContent = recentBlogs.map(blog => `
+제목: ${blog.title}
+본문 일부: ${blog.content.substring(0, 200)}...
+`).join('\n');
+  
+  const personalizedSection = `
+**개인화된 글쓰기 스타일 적용:**
+- 주요 어조: ${dominantTone || '친근하고 전문적인'}
+- 감정 표현: ${dominantEmotionalTone || '따뜻하고 격려적인'}
+- 문단 구조: ${dominantStructure || '체계적이고 읽기 쉬운'}
+- 문장 길이: ${dominantSentenceLength || '짧은 문장과 긴 문장 혼용'}
+
+**자주 사용하는 표현 패턴:**
+${commonPhrases.length > 0 ? commonPhrases.map(phrase => `- ${phrase}`).join('\n') : '- 기본 표현 사용'}
+
+**참고할 기존 글 스타일:**
+${exampleContent}
+
+**중요 지침:**
+1. 위 개인화된 스타일을 자연스럽게 반영하여 일관성 있는 글쓰기 톤 유지
+2. 기존 글의 감정적 어조와 전달 방식을 참고하되, 새로운 키워드에 맞게 적용
+3. 학원의 홍보성 메시지는 기존 글과 같은 수준으로 자연스럽게 포함
+4. 독자와의 소통 방식과 격려 메시지 전달 방식을 기존 패턴에 따라 작성
+`;
+  
+  return basePrompt + personalizedSection;
+}
+
+// 가장 많이 사용된 값 찾기
+function getMostCommonValue(values: string[]): string {
+  if (values.length === 0) return '';
+  
+  const frequency: Record<string, number> = {};
+  values.forEach(value => {
+    frequency[value] = (frequency[value] || 0) + 1;
+  });
+  
+  return Object.keys(frequency).reduce((a, b) => 
+    frequency[a] > frequency[b] ? a : b
+  );
+}
+
+// 자동 학습 초기화 (서버 시작 시 한 번만 실행)
+let autoTrainingInitialized = false;
+async function ensureAutoTrainingInitialized() {
+  if (!autoTrainingInitialized) {
+    await initializeAutoTraining();
+    autoTrainingInitialized = true;
+  }
+}
 
 export async function POST(request: NextRequest) {
   try {
+    // 자동 학습 초기화 확인
+    await ensureAutoTrainingInitialized();
+    
+    // 환경 변수 체크
+    if (!process.env.GEMINI_API_KEY) {
+      console.error('GEMINI_API_KEY environment variable is not set');
+      return NextResponse.json({ 
+        error: 'GEMINI_API_KEY가 설정되지 않았습니다. .env.local 파일을 확인해주세요.' 
+      }, { status: 500 });
+    }
+
     const { prompt, category, keywords, contentType } = await request.json();
 
     if (!prompt || !category || !keywords || !contentType || !Array.isArray(keywords) || keywords.length < 3) {
@@ -93,63 +221,149 @@ ${JSON.stringify(selectedType, null, 2)}
 5. 선택된 콘텐츠 타입의 톤과 형식을 정확히 준수
 `;
 
-    const enhancedPrompt = structuredPrompt;
+    // 학습된 데이터 읽기 및 개인화
+    let personalizedPrompt: string;
+    const trainingData = readTrainingData();
+    if (trainingData) {
+      personalizedPrompt = generatePersonalizedPrompt(structuredPrompt, trainingData, contentType);
+    } else {
+      personalizedPrompt = structuredPrompt;
+    }
 
-    // Initialize the Gemini AI
-    const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
-    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
-
-    // Generate content
-    const result = await model.generateContent(enhancedPrompt);
-    const response = await result.response;
-    const text = response.text();
-
-    // Parse JSON response
+    // Initialize the Gemini AI with retry logic
     try {
-      // Clean up the response text to extract JSON
-      let jsonText = text.trim();
+      const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+      const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+
+      // Retry logic for API calls
+      const maxRetries = 3;
+      let lastError: Error | null = null;
+      let text = '';
       
-      // Remove any markdown code block markers
-      jsonText = jsonText.replace(/```json\s*/g, '').replace(/```\s*/g, '');
-      
-      // Find JSON content between braces
-      const jsonStart = jsonText.indexOf('{');
-      const jsonEnd = jsonText.lastIndexOf('}') + 1;
-      
-      if (jsonStart !== -1 && jsonEnd > jsonStart) {
-        jsonText = jsonText.substring(jsonStart, jsonEnd);
+      for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+          console.log(`API 호출 시도 ${attempt}/${maxRetries}`);
+          
+          // Generate content with timeout
+          const result = await Promise.race([
+            model.generateContent(personalizedPrompt),
+            new Promise((_, reject) => 
+              setTimeout(() => reject(new Error('API 호출 타임아웃 (30초)')), 30000)
+            )
+          ]) as { response: { text: () => string } };
+          
+          const response = result.response;
+          text = response.text();
+          
+          // Success - break out of retry loop
+          console.log('API 호출 성공');
+          lastError = null;
+          break;
+        } catch (error) {
+          lastError = error as Error;
+          console.error(`API 호출 시도 ${attempt} 실패:`, error);
+          
+          if (attempt < maxRetries) {
+            // Wait before retry (exponential backoff)
+            const waitTime = Math.pow(2, attempt) * 1000; // 2s, 4s, 8s
+            console.log(`${waitTime/1000}초 후 재시도...`);
+            await new Promise(resolve => setTimeout(resolve, waitTime));
+          }
+        }
       }
       
-      const structuredContent = JSON.parse(jsonText);
+      // If all retries failed, throw the last error
+      if (lastError) {
+        throw lastError;
+      }
+
+      // Parse JSON response
+      try {
+        // Clean up the response text to extract JSON
+        let jsonText = text.trim();
+        
+        // Remove any markdown code block markers
+        jsonText = jsonText.replace(/```json\s*/g, '').replace(/```\s*/g, '');
+        
+        // Find JSON content between braces
+        const jsonStart = jsonText.indexOf('{');
+        const jsonEnd = jsonText.lastIndexOf('}') + 1;
+        
+        if (jsonStart !== -1 && jsonEnd > jsonStart) {
+          jsonText = jsonText.substring(jsonStart, jsonEnd);
+        }
+        
+        const structuredContent = JSON.parse(jsonText);
+        
+        // Validate required fields
+        if (!structuredContent.title || !structuredContent.paragraph1 || !structuredContent.paragraph2 || !structuredContent.paragraph3 || !structuredContent.images || !structuredContent.hashtags) {
+          throw new Error('Missing required fields in structured content');
+        }
+        
+        // Clean up text content to remove unwanted characters
+        const cleanContent = (text: string) => {
+          return text
+            .replace(/\*+/g, '') // Remove all asterisks
+            .replace(/\s+/g, ' ') // Replace multiple spaces with single space
+            .trim();
+        };
+        
+        return NextResponse.json({
+          title: cleanContent(structuredContent.title),
+          paragraph1: cleanContent(structuredContent.paragraph1),
+          paragraph2: cleanContent(structuredContent.paragraph2),
+          paragraph3: cleanContent(structuredContent.paragraph3),
+          images: structuredContent.images,
+          hashtags: structuredContent.hashtags
+        });
+        
+      } catch (parseError) {
+        console.error('JSON parsing failed, returning raw text:', parseError);
+        
+        // Fallback to raw text if JSON parsing fails
+        return NextResponse.json({ 
+          content: text,
+          isStructured: false,
+          error: 'Structured parsing failed, showing raw content'
+        });
+      }
+    } catch (apiError) {
+      console.error('Gemini API error:', apiError);
       
-      // Validate required fields
-      if (!structuredContent.title || !structuredContent.paragraph1 || !structuredContent.paragraph2 || !structuredContent.paragraph3 || !structuredContent.images || !structuredContent.hashtags) {
-        throw new Error('Missing required fields in structured content');
+      // API 키 관련 에러 처리
+      if (apiError instanceof Error && apiError.message.includes('API_KEY')) {
+        return NextResponse.json({ 
+          error: 'API 키가 유효하지 않습니다. GEMINI_API_KEY를 확인해주세요.' 
+        }, { status: 401 });
       }
       
-      return NextResponse.json({
-        title: structuredContent.title,
-        paragraph1: structuredContent.paragraph1,
-        paragraph2: structuredContent.paragraph2,
-        paragraph3: structuredContent.paragraph3,
-        images: structuredContent.images,
-        hashtags: structuredContent.hashtags
-      });
+      // 서비스 과부하 에러 처리
+      if (apiError instanceof Error && (
+        apiError.message.includes('503') || 
+        apiError.message.includes('Service Unavailable') ||
+        apiError.message.includes('overloaded')
+      )) {
+        return NextResponse.json({ 
+          error: '🔄 AI 서비스가 일시적으로 과부하 상태입니다.\n\n잠시 후 다시 시도해주세요.\n\n해결 방법:\n1. 30초~1분 후 다시 시도\n2. 브라우저 새로고침 후 재시도\n3. 키워드 조합을 단순화하여 재시도' 
+        }, { status: 503 });
+      }
       
-    } catch (parseError) {
-      console.error('JSON parsing failed, returning raw text:', parseError);
+      // 타임아웃 에러 처리
+      if (apiError instanceof Error && apiError.message.includes('타임아웃')) {
+        return NextResponse.json({ 
+          error: '⏰ API 호출 시간이 초과되었습니다.\n\n네트워크 상태를 확인하고 다시 시도해주세요.' 
+        }, { status: 408 });
+      }
       
-      // Fallback to raw text if JSON parsing fails
+      // 기타 API 에러
       return NextResponse.json({ 
-        content: text,
-        isStructured: false,
-        error: 'Structured parsing failed, showing raw content'
-      });
+        error: `🚫 AI 서비스 연결에 실패했습니다.\n\n오류 내용: ${apiError instanceof Error ? apiError.message : '알 수 없는 오류'}\n\n해결 방법:\n1. 네트워크 연결 확인\n2. 잠시 후 다시 시도\n3. 브라우저 새로고침` 
+      }, { status: 503 });
     }
   } catch (error) {
     console.error('Error generating content:', error);
     return NextResponse.json(
-      { error: 'Failed to generate content' },
+      { error: `콘텐츠 생성 중 오류가 발생했습니다: ${error instanceof Error ? error.message : '알 수 없는 오류'}` },
       { status: 500 }
     );
   }
